@@ -193,8 +193,8 @@ function readFileAsUint8Array(file) {
 const { createFFmpeg } = FFmpeg;
 
 const ffmpeg = createFFmpeg({
-    // core-st = single-threaded build: no SharedArrayBuffer, no Worker spawn
-    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+    mainName: 'main',
     log: false,
     logger: ({ message }) => {
         if (!message || message.startsWith('frame=') || message.startsWith('size=')) return;

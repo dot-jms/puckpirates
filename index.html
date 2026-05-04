@@ -83,7 +83,7 @@
             const { createFFmpeg, fetchFile: importedFetchFile } = FFmpeg;
             fetchFile = importedFetchFile;
             
-            // Pointing to the CDN files (which the Service Worker will instantly intercept and provide from cache!)
+            // Pointing to the CDN files
             const coreUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js';
             const wasmUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.wasm';
             
@@ -124,11 +124,28 @@
                 const videoEl = document.createElement('video');
                 videoEl.src = videoURL;
                 
+                // THE FIX: Outsmarting Chrome's Infinity Bug
                 await new Promise((resolve) => {
-                    videoEl.onloadedmetadata = () => resolve();
+                    videoEl.onloadedmetadata = () => {
+                        if (videoEl.duration === Infinity || isNaN(videoEl.duration)) {
+                            // Force Chrome to seek to the absolute end of the file to scan the true length
+                            videoEl.currentTime = 1e101; 
+                            videoEl.ontimeupdate = () => {
+                                videoEl.ontimeupdate = null;
+                                resolve();
+                            };
+                        } else {
+                            resolve();
+                        }
+                    };
                 });
                 
                 const mainDuration = videoEl.duration;
+                
+                if (mainDuration === Infinity || isNaN(mainDuration)) {
+                     throw new Error("Chrome flat-out refuses to read the length of this specific video file. Try converting it first.");
+                }
+
                 const targetDuration = Math.max(0, mainDuration - shaveSeconds);
                 
                 logEl.innerHTML += `Main video duration: ${mainDuration.toFixed(2)}s. Target duration: ${targetDuration.toFixed(2)}s.<br>`;

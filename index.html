@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Intro + Trimmer Tool</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ffmpeg/0.11.6/ffmpeg.min.js"></script>
+    <script src="./ffmpeg.min.js"></script>
     <style>
         body { font-family: system-ui, sans-serif; background-color: #1e1e2e; color: #cdd6f4; max-width: 600px; margin: 40px auto; padding: 20px; }
         .card { background-color: #313244; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
@@ -22,7 +22,7 @@
 <body>
 
     <div class="card">
-        <h2>🎬 Intro + Trim Tool</h2>
+        <h2>🎬 Intro + Trim Tool (Offline Mode)</h2>
         
         <div class="form-group">
             <label for="introFile">1. Import Intro Video</label>
@@ -58,17 +58,16 @@
         let ffmpeg = null;
         let fetchFile = null;
 
-        // Safety Check
         if (typeof FFmpeg === 'undefined') {
-            logEl.innerHTML = '<span style="color:red">Critical Error: Your network is strictly blocking the video engine from downloading.</span>';
+            logEl.innerHTML = '<span style="color:red">Critical Error: The local ffmpeg.min.js file is missing. Make sure you uploaded it to GitHub!</span>';
         } else {
             const { createFFmpeg, fetchFile: importedFetchFile } = FFmpeg;
             fetchFile = importedFetchFile;
             
-            // Boot single-threaded core
+            // BYPASS: Booting the core locally
             ffmpeg = createFFmpeg({ 
                 log: true,
-                corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+                corePath: './ffmpeg-core.js',
                 logger: ({ message }) => {
                     logEl.innerHTML += message + '<br>';
                     logEl.scrollTop = logEl.scrollHeight;
@@ -78,7 +77,7 @@
 
         document.getElementById('processBtn').addEventListener('click', async () => {
             if (!ffmpeg) {
-                alert("The engine couldn't load. Check the log box.");
+                alert("Engine missing. Did you upload the files to GitHub?");
                 return;
             }
 
@@ -94,7 +93,7 @@
             const processBtn = document.getElementById('processBtn');
             processBtn.disabled = true;
             document.getElementById('downloadContainer').style.display = 'none';
-            logEl.innerHTML = "Initializing engine...<br>";
+            logEl.innerHTML = "Initializing local engine...<br>";
 
             try {
                 const videoURL = URL.createObjectURL(mainFile);

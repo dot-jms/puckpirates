@@ -64,15 +64,14 @@
             const { createFFmpeg, fetchFile: importedFetchFile } = FFmpeg;
             fetchFile = importedFetchFile;
             
-            // THE FIX: Automatically generate full, absolute URLs so the background worker doesn't get lost in its blob domain
             const coreUrl = new URL('ffmpeg-core.js', document.baseURI).href;
             const wasmUrl = new URL('ffmpeg-core.wasm', document.baseURI).href;
             
-            // Booting the core locally with ABSOLUTE paths
             ffmpeg = createFFmpeg({ 
                 log: true,
                 corePath: coreUrl,
                 wasmPath: wasmUrl,
+                mainName: 'main', // <--- THIS IS THE FIX! Tells it to use the Single-Threaded start function
                 logger: ({ message }) => {
                     logEl.innerHTML += message + '<br>';
                     logEl.scrollTop = logEl.scrollHeight;

@@ -59,7 +59,7 @@
         let fetchFile = null;
 
         if (typeof FFmpeg === 'undefined') {
-            logEl.innerHTML = '<span style="color:red">Critical Error: The local ffmpeg.min.js file is missing. Make sure you uploaded it to GitHub!</span>';
+            logEl.innerHTML = '<span style="color:red">Critical Error: The local ffmpeg.min.js file is missing.</span>';
         } else {
             const { createFFmpeg, fetchFile: importedFetchFile } = FFmpeg;
             fetchFile = importedFetchFile;
@@ -71,7 +71,7 @@
                 log: true,
                 corePath: coreUrl,
                 wasmPath: wasmUrl,
-                mainName: 'main', // <--- THIS IS THE FIX! Tells it to use the Single-Threaded start function
+                mainName: 'main',
                 logger: ({ message }) => {
                     logEl.innerHTML += message + '<br>';
                     logEl.scrollTop = logEl.scrollHeight;
@@ -81,7 +81,7 @@
 
         document.getElementById('processBtn').addEventListener('click', async () => {
             if (!ffmpeg) {
-                alert("Engine missing. Did you upload the files to GitHub?");
+                alert("Engine missing.");
                 return;
             }
 
@@ -121,11 +121,17 @@
                 logEl.innerHTML += "Trimming main video...<br>";
                 await ffmpeg.run('-i', 'main.mp4', '-t', targetDuration.toString(), '-c', 'copy', 'trimmed_main.mp4');
 
-                logEl.innerHTML += "Merging videos...<br>";
-                const concatText = "file 'intro.mp4'\nfile 'trimmed_main.mp4'";
-                ffmpeg.FS('writeFile', 'concat_list.txt', concatText);
+                logEl.innerHTML += "Merging videos (Re-encoding for compatibility)...<br>";
                 
-                await ffmpeg.run('-f', 'concat', '-safe', '0', '-i', 'concat_list.txt', '-c', 'copy', 'output.mp4');
+                // FIX: Re-encoding the videos using filter_complex so they stitch seamlessly regardless of differing formats
+                await ffmpeg.run(
+                    '-i', 'intro.mp4',
+                    '-i', 'trimmed_main.mp4',
+                    '-filter_complex', '[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]',
+                    '-map', '[outv]',
+                    '-map', '[outa]',
+                    'output.mp4'
+                );
 
                 const data = ffmpeg.FS('readFile', 'output.mp4');
                 const blob = new Blob([data.buffer], { type: 'video/mp4' });

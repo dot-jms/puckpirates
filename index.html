@@ -64,11 +64,15 @@
             const { createFFmpeg, fetchFile: importedFetchFile } = FFmpeg;
             fetchFile = importedFetchFile;
             
-            // BYPASS: Booting the core locally
+            // THE FIX: Automatically generate full, absolute URLs so the background worker doesn't get lost in its blob domain
+            const coreUrl = new URL('ffmpeg-core.js', document.baseURI).href;
+            const wasmUrl = new URL('ffmpeg-core.wasm', document.baseURI).href;
+            
+            // Booting the core locally with ABSOLUTE paths
             ffmpeg = createFFmpeg({ 
                 log: true,
-                corePath: './ffmpeg-core.js',
-                wasmPath: './ffmpeg-core.wasm', // <--- FIXED: Explicitly pointing to the local wasm file
+                corePath: coreUrl,
+                wasmPath: wasmUrl,
                 logger: ({ message }) => {
                     logEl.innerHTML += message + '<br>';
                     logEl.scrollTop = logEl.scrollHeight;

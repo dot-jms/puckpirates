@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Intro + Trimmer Tool</title>
-    <!-- v0.11 non-ESM build — no Worker, no SharedArrayBuffer required -->
-    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@600;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -119,6 +117,7 @@
 </div>
 
 <script>
+// ── Globals ───────────────────────────────────────────────────────────────────
 const logEl = document.getElementById('log');
 const statusEl = document.getElementById('offlineStatus');
 const progressFill = document.getElementById('progressFill');
@@ -179,7 +178,6 @@ function getVideoDuration(file) {
     });
 }
 
-// Read a File as Uint8Array — one at a time to avoid double-buffering
 function readFileAsUint8Array(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -189,30 +187,91 @@ function readFileAsUint8Array(file) {
     });
 }
 
-// ── FFmpeg v0.11 + core-st (single-threaded, no Worker, no CORS issues) ────
-const { createFFmpeg } = FFmpeg;
+// ── FFmpeg core-st driver ─────────────────────────────────────────────────────
+// core-st auto-runs _main on load, so we can't use it for repeated calls via
+// ffmpeg.min.js. Instead we drive it directly: reload the module fresh for each
+// ffmpeg command, intercept stdout/stderr via the Module config, and read/write
+// files through the FS object it exposes.
 
-const ffmpeg = createFFmpeg({
-    corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.0/dist/ffmpeg-core.js',
-    mainName: '_main',
-    log: false,
-    logger: ({ message }) => {
-        if (!message || message.startsWith('frame=') || message.startsWith('size=')) return;
-        log(message);
-    },
-    progress: ({ ratio }) => {
-        // ratio is 0..1 within current ffmpeg.run() call
-        const pct = phaseStart + ratio * phaseSize;
-        setProgress(pct);
-    }
-});
+const CORE_URL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.0/dist/ffmpeg-core.js';
+let coreScriptText = null; // cached after first fetch
 
-let phaseStart = 0, phaseSize = 0;
-function startPhase(start, size, label) {
-    phaseStart = start; phaseSize = size;
-    setProgress(start, label);
+async function loadCoreText() {
+    if (coreScriptText) return coreScriptText;
+    setProgress(6, 'Fetching FFmpeg engine...');
+    log('⚙ Fetching FFmpeg WASM engine (once)...');
+    const res = await fetch(CORE_URL);
+    if (!res.ok) throw new Error('Failed to fetch ffmpeg-core.js: ' + res.status);
+    coreScriptText = await res.text();
+    log('✔ Engine fetched and cached.');
+    return coreScriptText;
 }
 
+// Run one ffmpeg command. Returns a promise that resolves when ffmpeg exits.
+// `args` is an array of strings (the argv after "ffmpeg").
+// `files` is an object: { filename: Uint8Array } to write before running.
+// Returns an object: { exitCode, stdout, stderr, fs }
+function runFFmpeg(args, files, onLog) {
+    return new Promise((resolve, reject) => {
+        const stdout = [], stderr = [];
+
+        // Build a Module config that core-st will merge with its own
+        const moduleConfig = {
+            // Provide the arguments: argv[0] = "ffmpeg", rest = args
+            arguments: args,
+
+            // Suppress default print/err (we capture it ourselves)
+            print: (msg) => {
+                stdout.push(msg);
+                if (onLog && !msg.startsWith('frame=') && !msg.startsWith('size=')) onLog(msg);
+            },
+            printErr: (msg) => {
+                stderr.push(msg);
+                if (onLog && !msg.startsWith('frame=') && !msg.startsWith('size=')) onLog(msg);
+            },
+
+            // Called when the WASM runtime is ready but before main() runs
+            onRuntimeInitialized() {
+                // Write all input files into the virtual FS
+                try {
+                    for (const [name, data] of Object.entries(files)) {
+                        this.FS.writeFile(name, data);
+                    }
+                } catch(e) {
+                    reject(e);
+                }
+            },
+
+            // Called when main() exits
+            quit(code, err) {
+                if (code !== 0 && code !== 1 && err && !(err instanceof this.ExitStatus)) {
+                    reject(err);
+                } else {
+                    resolve({ exitCode: code, stdout, stderr, fs: this.FS });
+                }
+            }
+        };
+
+        // Inject our config so core-st picks it up
+        // core-st does: var Module = typeof createFFmpegCore !== 'undefined' ? createFFmpegCore : {};
+        // We need to pass it via the createFFmpegCore factory
+        try {
+            // Evaluate the core script in a closure that provides our Module config
+            const factory = new Function('createFFmpegCoreConfig', coreScriptText + '\nreturn createFFmpegCore;');
+            // core-st uses `var Module = typeof createFFmpegCore...` — we shadow it
+            // Actually core-st wraps itself and calls createFFmpegCore(Module)
+            // The factory pattern: call with our config object
+            const createFFmpegCore = factory(moduleConfig);
+            // Some builds return a promise, some don't
+            Promise.resolve(typeof createFFmpegCore === 'function' ? createFFmpegCore(moduleConfig) : createFFmpegCore)
+                .catch(reject);
+        } catch(e) {
+            reject(e);
+        }
+    });
+}
+
+// ── Main process ──────────────────────────────────────────────────────────────
 document.getElementById('processBtn').addEventListener('click', async () => {
     const introFile = document.getElementById('introFile').files[0];
     const mainFile  = document.getElementById('mainFile').files[0];
@@ -228,75 +287,79 @@ document.getElementById('processBtn').addEventListener('click', async () => {
     setProgress(1, 'Starting...');
 
     try {
-        // ── Probe duration (zero RAM cost) ────────────────────────────────
+        // ── Duration probe ────────────────────────────────────────────────
         log('📐 Probing main video duration...');
         const mainDuration = await getVideoDuration(mainFile);
         if (!mainDuration) throw new Error('Could not read video duration.');
         const targetDuration = Math.max(0.1, mainDuration - shaveSec);
         log(`✔ Duration: ${mainDuration.toFixed(2)}s → target: ${targetDuration.toFixed(2)}s`);
 
-        // ── Load WASM engine ──────────────────────────────────────────────
-        if (!ffmpeg.isLoaded()) {
-            setProgress(5, 'Loading FFmpeg engine...');
-            log('⚙ Loading single-threaded FFmpeg WASM...');
-            await ffmpeg.load();
-            log('✔ Engine ready.');
-        }
+        // ── Fetch WASM engine (cached after first run) ────────────────────
+        await loadCoreText();
 
         // ── Encode intro ──────────────────────────────────────────────────
-        startPhase(12, 26, 'Encoding intro...');
+        setProgress(12, 'Encoding intro...');
         log('📂 Reading intro file...');
         const introData = await readFileAsUint8Array(introFile);
-        ffmpeg.FS('writeFile', 'intro.mp4', introData);
 
         log('🎞 Encoding intro → TS...');
-        await ffmpeg.run(
-            '-i', 'intro.mp4',
-            '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
-            '-c:a', 'aac', '-b:a', '128k',
-            '-f', 'mpegts', 'intro.ts'
+        const introResult = await runFFmpeg(
+            ['-i', 'intro.mp4',
+             '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+             '-c:a', 'aac', '-b:a', '128k',
+             '-f', 'mpegts', 'intro.ts'],
+            { 'intro.mp4': introData },
+            log
         );
-        ffmpeg.FS('unlink', 'intro.mp4');
-        log('✔ Intro done. Freed from memory.');
+        if (introResult.exitCode !== 0 && introResult.exitCode !== 1) {
+            throw new Error('Intro encoding failed (exit ' + introResult.exitCode + ')');
+        }
+        const introTS = introResult.fs.readFile('intro.ts');
+        log('✔ Intro encoded.');
 
         // ── Encode + trim main ────────────────────────────────────────────
-        startPhase(40, 38, 'Encoding main video...');
+        setProgress(40, 'Encoding main video...');
         log('📂 Reading main video file...');
         const mainData = await readFileAsUint8Array(mainFile);
-        ffmpeg.FS('writeFile', 'main.mp4', mainData);
 
         log('🎞 Encoding & trimming main video...');
-        await ffmpeg.run(
-            '-i', 'main.mp4',
-            '-t', targetDuration.toFixed(3),
-            '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
-            '-c:a', 'aac', '-b:a', '128k',
-            '-f', 'mpegts', 'main.ts'
+        const mainResult = await runFFmpeg(
+            ['-i', 'main.mp4',
+             '-t', targetDuration.toFixed(3),
+             '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+             '-c:a', 'aac', '-b:a', '128k',
+             '-f', 'mpegts', 'main.ts'],
+            { 'main.mp4': mainData },
+            log
         );
-        ffmpeg.FS('unlink', 'main.mp4');
-        log('✔ Main video done. Freed from memory.');
+        if (mainResult.exitCode !== 0 && mainResult.exitCode !== 1) {
+            throw new Error('Main video encoding failed (exit ' + mainResult.exitCode + ')');
+        }
+        const mainTS = mainResult.fs.readFile('main.ts');
+        log('✔ Main video encoded.');
 
         // ── Concat ────────────────────────────────────────────────────────
-        startPhase(80, 15, 'Merging videos...');
+        setProgress(82, 'Merging videos...');
         log('🔗 Concatenating...');
-        await ffmpeg.run(
-            '-i', 'concat:intro.ts|main.ts',
-            '-c', 'copy',
-            '-movflags', '+faststart',
-            'output.mp4'
+        const concatResult = await runFFmpeg(
+            ['-i', 'concat:intro.ts|main.ts',
+             '-c', 'copy',
+             '-movflags', '+faststart',
+             'output.mp4'],
+            { 'intro.ts': introTS, 'main.ts': mainTS },
+            log
         );
-        ffmpeg.FS('unlink', 'intro.ts');
-        ffmpeg.FS('unlink', 'main.ts');
+        if (concatResult.exitCode !== 0 && concatResult.exitCode !== 1) {
+            throw new Error('Concat failed (exit ' + concatResult.exitCode + ')');
+        }
+        const outputData = concatResult.fs.readFile('output.mp4');
 
         // ── Export ────────────────────────────────────────────────────────
         setProgress(97, 'Packaging download...');
-        log('📦 Reading output...');
-        const data = ffmpeg.FS('readFile', 'output.mp4');
-        const blob = new Blob([data.buffer], { type: 'video/mp4' });
+        const blob = new Blob([outputData.buffer], { type: 'video/mp4' });
         const url  = URL.createObjectURL(blob);
-        ffmpeg.FS('unlink', 'output.mp4');
 
         const dl = document.getElementById('downloadLink');
         dl.href = url;

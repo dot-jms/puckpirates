@@ -24,7 +24,7 @@
 <body>
 
     <div class="card">
-        <h2>🎬 Intro + Trim Tool</h2>
+        <h2>🎬 Intro + Trim Tool (Memory Optimized)</h2>
         <div id="offlineStatus" class="status-badge">Checking Offline Status...</div>
         
         <div class="form-group">
@@ -55,19 +55,15 @@
         const logEl = document.getElementById('log');
         const statusEl = document.getElementById('offlineStatus');
 
-        // REGISTER SERVICE WORKER FOR OFFLINE CACHING
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js')
             .then(() => {
                 statusEl.textContent = "✅ App Cached & Ready for Offline Use";
                 statusEl.classList.add('ready');
             })
-            .catch((err) => {
-                console.error("Service Worker failed", err);
+            .catch(() => {
                 statusEl.textContent = "❌ Offline Caching Failed";
             });
-        } else {
-            statusEl.textContent = "❌ Browser doesn't support offline caching";
         }
 
         window.onerror = function(message) {
@@ -77,19 +73,14 @@
         let ffmpeg = null;
         let fetchFile = null;
 
-        if (typeof FFmpeg === 'undefined') {
-            logEl.innerHTML = '<span style="color:red">Engine blocked. Connect to a non-restricted network ONCE to download and cache the engine.</span>';
-        } else {
+        if (typeof FFmpeg !== 'undefined') {
             const { createFFmpeg, fetchFile: importedFetchFile } = FFmpeg;
             fetchFile = importedFetchFile;
             
-            const coreUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js';
-            const wasmUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.wasm';
-            
             ffmpeg = createFFmpeg({ 
                 log: true,
-                corePath: coreUrl,
-                wasmPath: wasmUrl,
+                corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+                wasmPath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.wasm',
                 mainName: 'main',
                 logger: ({ message }) => {
                     logEl.innerHTML += message + '<br>';
@@ -99,19 +90,13 @@
         }
 
         document.getElementById('processBtn').addEventListener('click', async () => {
-            if (!ffmpeg) {
-                alert("Engine not loaded. Please connect to an unrestricted network and refresh to cache the files.");
-                return;
-            }
+            if (!ffmpeg) return alert("Engine not loaded.");
 
             const introFile = document.getElementById('introFile').files[0];
             const mainFile = document.getElementById('mainFile').files[0];
             const shaveSeconds = parseFloat(document.getElementById('shaveSeconds').value) || 0;
 
-            if (!introFile || !mainFile) {
-                alert("Please select both an intro and a main video.");
-                return;
-            }
+            if (!introFile || !mainFile) return alert("Select both an intro and a main video.");
 
             const processBtn = document.getElementById('processBtn');
             processBtn.disabled = true;
@@ -126,64 +111,55 @@
                 await new Promise((resolve) => {
                     videoEl.onloadedmetadata = () => {
                         if (videoEl.duration === Infinity || isNaN(videoEl.duration)) {
-                            videoEl.currentTime = 1e101; 
+                            videoEl.currentTime = 1000000; // Safer number for Chrome memory
                             videoEl.ontimeupdate = () => {
                                 videoEl.ontimeupdate = null;
                                 resolve();
                             };
-                        } else {
-                            resolve();
-                        }
+                        } else resolve();
                     };
                 });
                 
                 const mainDuration = videoEl.duration;
-                
-                if (mainDuration === Infinity || isNaN(mainDuration)) {
-                     throw new Error("Chrome flat-out refuses to read the length of this specific video file. Try converting it first.");
-                }
-
                 const targetDuration = Math.max(0, mainDuration - shaveSeconds);
-                
-                logEl.innerHTML += `Main video duration: ${mainDuration.toFixed(2)}s. Target duration: ${targetDuration.toFixed(2)}s.<br>`;
+                logEl.innerHTML += `Main duration: ${mainDuration.toFixed(2)}s. Target: ${targetDuration.toFixed(2)}s.<br>`;
 
                 if (!ffmpeg.isLoaded()) await ffmpeg.load();
 
+                // Write files to memory
                 ffmpeg.FS('writeFile', 'intro.mp4', await fetchFile(introFile));
                 ffmpeg.FS('writeFile', 'main.mp4', await fetchFile(mainFile));
 
-                // STEP 1: Process Intro by itself into an MPEG-TS stream (Letterboxes to 720p safely)
-                logEl.innerHTML += "Processing Intro (Normalizing format)...<br>";
+                // STEP 1: Process Intro
+                logEl.innerHTML += "Processing Intro...<br>";
                 await ffmpeg.run(
                     '-i', 'intro.mp4',
                     '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-                    '-c:v', 'libx264',
-                    '-preset', 'ultrafast',
-                    '-c:a', 'aac',
-                    '-f', 'mpegts',
-                    'intro.ts'
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-f', 'mpegts', 'intro.ts'
                 );
+                
+                // 🗑️ GARBAGE COLLECTION: Delete the original intro file to free up RAM!
+                ffmpeg.FS('unlink', 'intro.mp4'); 
 
-                // STEP 2: Process Main Video by itself into an MPEG-TS stream (Trims & Letterboxes to 720p safely)
-                logEl.innerHTML += "Processing Main Video (Trimming & Normalizing)...<br>";
+                // STEP 2: Process Main Video
+                logEl.innerHTML += "Processing Main Video...<br>";
                 await ffmpeg.run(
                     '-i', 'main.mp4',
                     '-t', targetDuration.toString(),
                     '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-                    '-c:v', 'libx264',
-                    '-preset', 'ultrafast',
-                    '-c:a', 'aac',
-                    '-f', 'mpegts',
-                    'main.ts'
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-f', 'mpegts', 'main.ts'
                 );
 
-                // STEP 3: Binary Concat. Smashes the two streams together without decoding!
+                // 🗑️ GARBAGE COLLECTION: Delete the original main video to free up RAM!
+                ffmpeg.FS('unlink', 'main.mp4');
+
+                // STEP 3: Concat
                 logEl.innerHTML += "Merging video packets...<br>";
-                await ffmpeg.run(
-                    '-i', 'concat:intro.ts|main.ts',
-                    '-c', 'copy',
-                    'output.mp4'
-                );
+                await ffmpeg.run('-i', 'concat:intro.ts|main.ts', '-c', 'copy', 'output.mp4');
+
+                // 🗑️ GARBAGE COLLECTION: Delete the temporary TS files!
+                ffmpeg.FS('unlink', 'intro.ts');
+                ffmpeg.FS('unlink', 'main.ts');
 
                 const data = ffmpeg.FS('readFile', 'output.mp4');
                 const blob = new Blob([data.buffer], { type: 'video/mp4' });
@@ -194,6 +170,9 @@
                 document.getElementById('downloadContainer').style.display = 'block';
                 
                 logEl.innerHTML += "Done! Ready for download.<br>";
+
+                // 🗑️ Final cleanup of output to completely empty the RAM for the next run
+                ffmpeg.FS('unlink', 'output.mp4');
 
             } catch (err) {
                 console.error(err);

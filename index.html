@@ -68,6 +68,7 @@
             ffmpeg = createFFmpeg({ 
                 log: true,
                 corePath: './ffmpeg-core.js',
+                wasmPath: './ffmpeg-core.wasm', // <--- FIXED: Explicitly pointing to the local wasm file
                 logger: ({ message }) => {
                     logEl.innerHTML += message + '<br>';
                     logEl.scrollTop = logEl.scrollHeight;

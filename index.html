@@ -229,10 +229,12 @@ document.getElementById('processBtn').addEventListener('click', async () => {
         if (!ffmpeg.loaded) {
             setProgress(5, 'Loading FFmpeg engine...');
             log('⚙ Loading FFmpeg WASM engine (first load only)...');
-            const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+            const base    = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+            const workerURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/worker.js';
             await ffmpeg.load({
-                coreURL: await toBlobURL(`${base}/ffmpeg-core.js`,   'text/javascript'),
-                wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+                coreURL:   await toBlobURL(`${base}/ffmpeg-core.js`,   'text/javascript'),
+                wasmURL:   await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+                workerURL: await toBlobURL(workerURL,                  'text/javascript'),
             });
             log('✔ Engine ready.');
         }

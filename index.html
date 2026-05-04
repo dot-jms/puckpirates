@@ -6,181 +6,486 @@
     <title>Video Intro + Trimmer Tool</title>
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     <style>
-        body { font-family: system-ui, sans-serif; background-color: #1e1e2e; color: #cdd6f4; max-width: 600px; margin: 40px auto; padding: 20px; }
-        .card { background-color: #313244; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@600;800&display=swap');
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #0f0f17;
+            color: #cdd6f4;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .card {
+            background: linear-gradient(145deg, #1a1a2e, #16213e);
+            border: 1px solid #2a2a4a;
+            padding: 32px;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 580px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+        }
+
+        h2 {
+            font-family: 'Syne', sans-serif;
+            font-size: 22px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            background: linear-gradient(90deg, #89b4fa, #cba6f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 11px;
+            color: #6c7086;
+            margin-bottom: 24px;
+            letter-spacing: 0.05em;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            margin-bottom: 24px;
+            background: rgba(243, 139, 168, 0.15);
+            color: #f38ba8;
+            border: 1px solid rgba(243, 139, 168, 0.3);
+        }
+        .status-badge.ready {
+            background: rgba(166, 227, 161, 0.1);
+            color: #a6e3a1;
+            border-color: rgba(166, 227, 161, 0.3);
+        }
+
         .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; font-weight: bold; }
-        input[type="file"], input[type="number"] { width: 100%; padding: 10px; box-sizing: border-box; background: #181825; border: 1px solid #45475a; color: white; border-radius: 5px; }
-        button { background-color: #89b4fa; color: #11111b; border: none; padding: 12px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 10px;}
-        button:hover { background-color: #74c7ec; }
-        button:disabled { background-color: #585b70; cursor: not-allowed; }
-        #log { margin-top: 20px; font-family: monospace; background: #11111b; padding: 10px; border-radius: 5px; max-height: 150px; overflow-y: auto; color: #a6e3a1; font-size: 12px; }
-        #downloadContainer { margin-top: 20px; text-align: center; display: none; }
-        a.download-btn { background-color: #a6e3a1; color: #11111b; text-decoration: none; padding: 12px 20px; border-radius: 5px; font-weight: bold; display: inline-block; }
-        .status-badge { display: inline-block; padding: 5px 10px; border-radius: 5px; font-size: 12px; font-weight: bold; margin-bottom: 15px; background: #f38ba8; color: #11111b; }
-        .status-badge.ready { background: #a6e3a1; }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #89b4fa;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            border: 1.5px dashed #2a2a4a;
+            border-radius: 8px;
+            transition: border-color 0.2s, background 0.2s;
+            cursor: pointer;
+            overflow: hidden;
+        }
+        .file-input-wrapper:hover { border-color: #89b4fa; background: rgba(137, 180, 250, 0.04); }
+        .file-input-wrapper.has-file { border-style: solid; border-color: #a6e3a1; background: rgba(166, 227, 161, 0.04); }
+
+        input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+
+        .file-display {
+            padding: 12px 16px;
+            font-size: 12px;
+            color: #6c7086;
+            pointer-events: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .file-display.selected { color: #cdd6f4; }
+
+        .warning-badge {
+            display: none;
+            margin-top: 6px;
+            padding: 6px 10px;
+            background: rgba(249, 226, 175, 0.1);
+            border: 1px solid rgba(249, 226, 175, 0.3);
+            border-radius: 6px;
+            font-size: 11px;
+            color: #f9e2af;
+        }
+
+        .row { display: flex; gap: 12px; }
+        .row .form-group { flex: 1; }
+
+        input[type="number"] {
+            width: 100%;
+            padding: 11px 14px;
+            background: #11111b;
+            border: 1.5px solid #2a2a4a;
+            color: white;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        input[type="number"]:focus { outline: none; border-color: #89b4fa; }
+
+        .process-btn {
+            background: linear-gradient(135deg, #89b4fa, #cba6f7);
+            color: #11111b;
+            border: none;
+            padding: 14px 20px;
+            font-size: 14px;
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 4px;
+            letter-spacing: 0.03em;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .process-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+        .process-btn:active:not(:disabled) { transform: translateY(0); }
+        .process-btn:disabled { background: #2a2a4a; color: #6c7086; cursor: not-allowed; transform: none; }
+
+        .progress-container {
+            margin-top: 16px;
+            display: none;
+        }
+        .progress-bar-bg {
+            background: #11111b;
+            border-radius: 4px;
+            height: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #89b4fa, #cba6f7);
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .progress-stage {
+            font-size: 11px;
+            color: #6c7086;
+            letter-spacing: 0.05em;
+        }
+
+        #log {
+            margin-top: 16px;
+            font-family: 'JetBrains Mono', monospace;
+            background: #06060f;
+            border: 1px solid #1a1a2e;
+            padding: 12px;
+            border-radius: 8px;
+            max-height: 130px;
+            overflow-y: auto;
+            color: #a6e3a1;
+            font-size: 11px;
+            line-height: 1.6;
+        }
+
+        #downloadContainer {
+            margin-top: 20px;
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        a.download-btn {
+            background: linear-gradient(135deg, #a6e3a1, #94e2d5);
+            color: #11111b;
+            text-decoration: none;
+            padding: 14px 20px;
+            border-radius: 8px;
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        a.download-btn:hover { opacity: 0.9; transform: translateY(-1px); }
     </style>
 </head>
 <body>
+<div class="card">
+    <h2>🎬 Intro + Trim Tool</h2>
+    <p class="subtitle">MEMORY-SAFE · BROWSER-NATIVE · OFFLINE READY</p>
+    <div id="offlineStatus" class="status-badge">● CHECKING CACHE...</div>
 
-    <div class="card">
-        <h2>🎬 Intro + Trim Tool (Memory Optimized)</h2>
-        <div id="offlineStatus" class="status-badge">Checking Offline Status...</div>
-        
-        <div class="form-group">
-            <label for="introFile">1. Import Intro Video</label>
+    <div class="form-group">
+        <label>1 · Intro Video</label>
+        <div class="file-input-wrapper" id="introWrapper">
+            <div class="file-display" id="introDisplay">Click to select intro video...</div>
             <input type="file" id="introFile" accept="video/mp4,video/x-m4v,video/*">
         </div>
-
-        <div class="form-group">
-            <label for="mainFile">2. Import Main Video</label>
-            <input type="file" id="mainFile" accept="video/mp4,video/x-m4v,video/*">
-        </div>
-
-        <div class="form-group">
-            <label for="shaveSeconds">3. Seconds to shave off the end</label>
-            <input type="number" id="shaveSeconds" min="0" step="0.1" value="5">
-        </div>
-
-        <button id="processBtn">Process Video</button>
-
-        <div id="log">Awaiting input...</div>
-
-        <div id="downloadContainer">
-            <a id="downloadLink" class="download-btn" href="#" download="final_video.mp4">⬇️ Download Finished Product</a>
-        </div>
+        <div class="warning-badge" id="introWarn">⚠ Large file — processing may be slow</div>
     </div>
 
-    <script>
-        const logEl = document.getElementById('log');
-        const statusEl = document.getElementById('offlineStatus');
+    <div class="form-group">
+        <label>2 · Main Video</label>
+        <div class="file-input-wrapper" id="mainWrapper">
+            <div class="file-display" id="mainDisplay">Click to select main video...</div>
+            <input type="file" id="mainFile" accept="video/mp4,video/x-m4v,video/*">
+        </div>
+        <div class="warning-badge" id="mainWarn">⚠ Large file — processing may be slow</div>
+    </div>
 
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js')
-            .then(() => {
-                statusEl.textContent = "✅ App Cached & Ready for Offline Use";
-                statusEl.classList.add('ready');
-            })
-            .catch(() => {
-                statusEl.textContent = "❌ Offline Caching Failed";
-            });
-        }
+    <div class="form-group">
+        <label>3 · Seconds to trim from end</label>
+        <input type="number" id="shaveSeconds" min="0" step="0.1" value="5">
+    </div>
 
-        window.onerror = function(message) {
-            logEl.innerHTML += `<span style="color:red">Page Error: ${message}</span><br>`;
-        };
+    <button class="process-btn" id="processBtn">▶ Process Video</button>
 
-        let ffmpeg = null;
-        let fetchFile = null;
+    <div class="progress-container" id="progressContainer">
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+        <div class="progress-stage" id="progressStage">Initializing...</div>
+    </div>
 
-        if (typeof FFmpeg !== 'undefined') {
-            const { createFFmpeg, fetchFile: importedFetchFile } = FFmpeg;
-            fetchFile = importedFetchFile;
-            
-            ffmpeg = createFFmpeg({ 
-                log: true,
-                corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
-                wasmPath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.wasm',
-                mainName: 'main',
-                logger: ({ message }) => {
-                    logEl.innerHTML += message + '<br>';
-                    logEl.scrollTop = logEl.scrollHeight;
-                }
-            });
-        }
+    <div id="log">Awaiting input...</div>
 
-        document.getElementById('processBtn').addEventListener('click', async () => {
-            if (!ffmpeg) return alert("Engine not loaded.");
+    <div id="downloadContainer">
+        <a id="downloadLink" class="download-btn" href="#" download="final_video.mp4">
+            ⬇ Download Finished Video
+        </a>
+    </div>
+</div>
 
-            const introFile = document.getElementById('introFile').files[0];
-            const mainFile = document.getElementById('mainFile').files[0];
-            const shaveSeconds = parseFloat(document.getElementById('shaveSeconds').value) || 0;
+<script>
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('offlineStatus');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressFill = document.getElementById('progressFill');
+    const progressStage = document.getElementById('progressStage');
 
-            if (!introFile || !mainFile) return alert("Select both an intro and a main video.");
+    // --- Service Worker ---
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js')
+            .then(() => { statusEl.textContent = '● OFFLINE READY'; statusEl.classList.add('ready'); })
+            .catch(() => { statusEl.textContent = '● OFFLINE CACHE FAILED'; });
+    } else {
+        statusEl.textContent = '● SW NOT SUPPORTED';
+    }
 
-            const processBtn = document.getElementById('processBtn');
-            processBtn.disabled = true;
-            document.getElementById('downloadContainer').style.display = 'none';
-            logEl.innerHTML = "Initializing engine...<br>";
-
-            try {
-                const videoURL = URL.createObjectURL(mainFile);
-                const videoEl = document.createElement('video');
-                videoEl.src = videoURL;
-                
-                await new Promise((resolve) => {
-                    videoEl.onloadedmetadata = () => {
-                        if (videoEl.duration === Infinity || isNaN(videoEl.duration)) {
-                            videoEl.currentTime = 1000000; // Safer number for Chrome memory
-                            videoEl.ontimeupdate = () => {
-                                videoEl.ontimeupdate = null;
-                                resolve();
-                            };
-                        } else resolve();
-                    };
-                });
-                
-                const mainDuration = videoEl.duration;
-                const targetDuration = Math.max(0, mainDuration - shaveSeconds);
-                logEl.innerHTML += `Main duration: ${mainDuration.toFixed(2)}s. Target: ${targetDuration.toFixed(2)}s.<br>`;
-
-                if (!ffmpeg.isLoaded()) await ffmpeg.load();
-
-                // Write files to memory
-                ffmpeg.FS('writeFile', 'intro.mp4', await fetchFile(introFile));
-                ffmpeg.FS('writeFile', 'main.mp4', await fetchFile(mainFile));
-
-                // STEP 1: Process Intro
-                logEl.innerHTML += "Processing Intro...<br>";
-                await ffmpeg.run(
-                    '-i', 'intro.mp4',
-                    '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-                    '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-f', 'mpegts', 'intro.ts'
-                );
-                
-                // 🗑️ GARBAGE COLLECTION: Delete the original intro file to free up RAM!
-                ffmpeg.FS('unlink', 'intro.mp4'); 
-
-                // STEP 2: Process Main Video
-                logEl.innerHTML += "Processing Main Video...<br>";
-                await ffmpeg.run(
-                    '-i', 'main.mp4',
-                    '-t', targetDuration.toString(),
-                    '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
-                    '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-f', 'mpegts', 'main.ts'
-                );
-
-                // 🗑️ GARBAGE COLLECTION: Delete the original main video to free up RAM!
-                ffmpeg.FS('unlink', 'main.mp4');
-
-                // STEP 3: Concat
-                logEl.innerHTML += "Merging video packets...<br>";
-                await ffmpeg.run('-i', 'concat:intro.ts|main.ts', '-c', 'copy', 'output.mp4');
-
-                // 🗑️ GARBAGE COLLECTION: Delete the temporary TS files!
-                ffmpeg.FS('unlink', 'intro.ts');
-                ffmpeg.FS('unlink', 'main.ts');
-
-                const data = ffmpeg.FS('readFile', 'output.mp4');
-                const blob = new Blob([data.buffer], { type: 'video/mp4' });
-                const url = URL.createObjectURL(blob);
-                
-                const downloadLink = document.getElementById('downloadLink');
-                downloadLink.href = url;
-                document.getElementById('downloadContainer').style.display = 'block';
-                
-                logEl.innerHTML += "Done! Ready for download.<br>";
-
-                // 🗑️ Final cleanup of output to completely empty the RAM for the next run
-                ffmpeg.FS('unlink', 'output.mp4');
-
-            } catch (err) {
-                console.error(err);
-                logEl.innerHTML += `<span style="color:red">Error: ${err.message}</span><br>`;
-            } finally {
-                processBtn.disabled = false;
+    // --- File input UI ---
+    function setupFileInput(inputId, wrapperId, displayId, warnId) {
+        const input = document.getElementById(inputId);
+        const wrapper = document.getElementById(wrapperId);
+        const display = document.getElementById(displayId);
+        const warn = document.getElementById(warnId);
+        input.addEventListener('change', () => {
+            const file = input.files[0];
+            if (file) {
+                display.textContent = `${file.name}  (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
+                display.classList.add('selected');
+                wrapper.classList.add('has-file');
+                // Warn if over 300MB
+                warn.style.display = file.size > 300 * 1024 * 1024 ? 'block' : 'none';
             }
         });
-    </script>
+    }
+    setupFileInput('introFile', 'introWrapper', 'introDisplay', 'introWarn');
+    setupFileInput('mainFile', 'mainWrapper', 'mainDisplay', 'mainWarn');
+
+    // --- Logging ---
+    function log(msg, color) {
+        const span = document.createElement('span');
+        if (color) span.style.color = color;
+        span.textContent = msg;
+        logEl.appendChild(span);
+        logEl.appendChild(document.createElement('br'));
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setProgress(pct, stage) {
+        progressFill.style.width = pct + '%';
+        if (stage) progressStage.textContent = stage;
+    }
+
+    // --- Memory-safe file reader ---
+    // Reads a File as ArrayBuffer in chunks to avoid blocking the JS heap
+    async function fileToUint8Array(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(new Uint8Array(e.target.result));
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    // --- Get video duration safely ---
+    // Caps seek to 99999 to avoid Chrome OOM on Infinity duration streams
+    function getVideoDuration(file) {
+        return new Promise((resolve) => {
+            const url = URL.createObjectURL(file);
+            const v = document.createElement('video');
+            v.preload = 'metadata';
+            v.src = url;
+            const cleanup = () => { URL.revokeObjectURL(url); v.src = ''; };
+            v.onloadedmetadata = () => {
+                if (isFinite(v.duration) && v.duration > 0) {
+                    cleanup();
+                    resolve(v.duration);
+                } else {
+                    // For streams with Infinity duration, seek forward to probe
+                    v.currentTime = 99999;
+                    v.ontimeupdate = () => {
+                        v.ontimeupdate = null;
+                        const d = v.duration;
+                        cleanup();
+                        resolve(isFinite(d) ? d : v.currentTime);
+                    };
+                }
+            };
+            v.onerror = () => { cleanup(); resolve(0); };
+        });
+    }
+
+    // --- FFmpeg setup ---
+    let ffmpeg = null;
+    let fetchFile = null;
+
+    if (typeof FFmpeg !== 'undefined') {
+        const { createFFmpeg, fetchFile: ff } = FFmpeg;
+        fetchFile = ff;
+        ffmpeg = createFFmpeg({
+            log: false, // We handle logging ourselves
+            corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+            wasmPath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.wasm',
+            mainName: 'main',
+            logger: ({ message }) => {
+                // Only surface meaningful lines (skip noisy frame stats)
+                if (message && !message.startsWith('frame=') && !message.startsWith('size=')) {
+                    log(message);
+                }
+            }
+        });
+    } else {
+        log('❌ FFmpeg library failed to load. Check your internet connection.', '#f38ba8');
+    }
+
+    // --- Main process ---
+    document.getElementById('processBtn').addEventListener('click', async () => {
+        if (!ffmpeg) return alert('FFmpeg engine not loaded. Refresh the page.');
+
+        const introFile = document.getElementById('introFile').files[0];
+        const mainFile = document.getElementById('mainFile').files[0];
+        const shaveSeconds = parseFloat(document.getElementById('shaveSeconds').value) || 0;
+
+        if (!introFile || !mainFile) return alert('Please select both an intro and a main video.');
+
+        const processBtn = document.getElementById('processBtn');
+        processBtn.disabled = true;
+        document.getElementById('downloadContainer').style.display = 'none';
+        logEl.innerHTML = '';
+        progressContainer.style.display = 'block';
+        setProgress(2, 'Reading video metadata...');
+
+        try {
+            // Step 1: Get duration WITHOUT loading the full file into RAM
+            log('📐 Reading main video duration...');
+            const mainDuration = await getVideoDuration(mainFile);
+            if (mainDuration === 0) throw new Error('Could not read main video duration. File may be corrupt or unsupported.');
+            const targetDuration = Math.max(0.1, mainDuration - shaveSeconds);
+            log(`✔ Duration: ${mainDuration.toFixed(2)}s → trimmed to ${targetDuration.toFixed(2)}s`);
+
+            setProgress(8, 'Loading FFmpeg engine...');
+            if (!ffmpeg.isLoaded()) {
+                log('⚙ Loading FFmpeg WASM engine...');
+                await ffmpeg.load();
+                log('✔ Engine ready.');
+            }
+
+            // Step 2: Write intro — read then immediately write (one file at a time)
+            setProgress(15, 'Reading intro file...');
+            log('📂 Reading intro into memory...');
+            const introData = await fileToUint8Array(introFile);
+            ffmpeg.FS('writeFile', 'intro.mp4', introData);
+            // Dereference ASAP to allow GC
+            // (JS can't force GC, but dropping the reference helps)
+
+            setProgress(22, 'Encoding intro...');
+            log('🎞 Encoding intro...');
+            await ffmpeg.run(
+                '-i', 'intro.mp4',
+                '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+                '-c:a', 'aac', '-b:a', '128k',
+                '-f', 'mpegts', 'intro.ts'
+            );
+            ffmpeg.FS('unlink', 'intro.mp4');
+            log('✔ Intro encoded. Source freed.');
+
+            // Step 3: Write main video
+            setProgress(40, 'Reading main file...');
+            log('📂 Reading main video into memory...');
+            const mainData = await fileToUint8Array(mainFile);
+            ffmpeg.FS('writeFile', 'main.mp4', mainData);
+
+            setProgress(50, 'Encoding main video...');
+            log('🎞 Encoding & trimming main video...');
+            await ffmpeg.run(
+                '-i', 'main.mp4',
+                '-t', targetDuration.toFixed(3),
+                '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+                '-c:a', 'aac', '-b:a', '128k',
+                '-f', 'mpegts', 'main.ts'
+            );
+            ffmpeg.FS('unlink', 'main.mp4');
+            log('✔ Main video encoded. Source freed.');
+
+            // Step 4: Concat
+            setProgress(80, 'Merging videos...');
+            log('🔗 Concatenating intro + main...');
+            await ffmpeg.run(
+                '-i', 'concat:intro.ts|main.ts',
+                '-c', 'copy',
+                '-movflags', '+faststart',
+                'output.mp4'
+            );
+            ffmpeg.FS('unlink', 'intro.ts');
+            ffmpeg.FS('unlink', 'main.ts');
+
+            // Step 5: Export
+            setProgress(95, 'Preparing download...');
+            log('📦 Packaging output...');
+            const data = ffmpeg.FS('readFile', 'output.mp4');
+            const blob = new Blob([data.buffer], { type: 'video/mp4' });
+            const url = URL.createObjectURL(blob);
+            ffmpeg.FS('unlink', 'output.mp4');
+
+            const downloadLink = document.getElementById('downloadLink');
+            downloadLink.href = url;
+            downloadLink.download = `${mainFile.name.replace(/\.[^.]+$/, '')}_with_intro.mp4`;
+            document.getElementById('downloadContainer').style.display = 'block';
+
+            setProgress(100, 'Done!');
+            log('✅ Complete! Click the button below to download.', '#a6e3a1');
+
+        } catch (err) {
+            console.error(err);
+            log(`❌ Error: ${err.message}`, '#f38ba8');
+            setProgress(0, 'Failed — see log above');
+        } finally {
+            processBtn.disabled = false;
+        }
+    });
+</script>
 </body>
 </html>

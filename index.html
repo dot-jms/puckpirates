@@ -50,9 +50,11 @@
 
     <script>
         const { createFFmpeg, fetchFile } = FFmpeg;
-        // Instantiate FFmpeg and hook up the log to our UI
+        
+        // Instantiate FFmpeg using the SINGLE-THREADED core so we don't need SharedArrayBuffer or a Service Worker
         const ffmpeg = createFFmpeg({ 
             log: true,
+            corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
             logger: ({ message }) => {
                 const logEl = document.getElementById('log');
                 logEl.innerHTML += message + '<br>';
@@ -73,7 +75,7 @@
             const processBtn = document.getElementById('processBtn');
             processBtn.disabled = true;
             document.getElementById('downloadContainer').style.display = 'none';
-            document.getElementById('log').innerHTML = "Initializing engine...<br>";
+            document.getElementById('log').innerHTML = "Initializing engine (Single-Threaded)...<br>";
 
             try {
                 // 1. Get the duration of the main video using a hidden HTML video element
@@ -104,7 +106,6 @@
                 await ffmpeg.run('-i', 'main.mp4', '-t', targetDuration.toString(), '-c', 'copy', 'trimmed_main.mp4');
 
                 // 5. Concatenate intro and trimmed main video
-                // Note: -c copy works best if both videos have the exact same resolution and encoding.
                 document.getElementById('log').innerHTML += "Merging videos...<br>";
                 const concatText = "file 'intro.mp4'\nfile 'trimmed_main.mp4'";
                 ffmpeg.FS('writeFile', 'concat_list.txt', concatText);

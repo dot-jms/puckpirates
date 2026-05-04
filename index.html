@@ -4,25 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Intro + Trimmer Tool</title>
-    <script src="./ffmpeg.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     <style>
         body { font-family: system-ui, sans-serif; background-color: #1e1e2e; color: #cdd6f4; max-width: 600px; margin: 40px auto; padding: 20px; }
         .card { background-color: #313244; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 8px; font-weight: bold; }
         input[type="file"], input[type="number"] { width: 100%; padding: 10px; box-sizing: border-box; background: #181825; border: 1px solid #45475a; color: white; border-radius: 5px; }
-        button { background-color: #89b4fa; color: #11111b; border: none; padding: 12px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; }
+        button { background-color: #89b4fa; color: #11111b; border: none; padding: 12px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 10px;}
         button:hover { background-color: #74c7ec; }
         button:disabled { background-color: #585b70; cursor: not-allowed; }
         #log { margin-top: 20px; font-family: monospace; background: #11111b; padding: 10px; border-radius: 5px; max-height: 150px; overflow-y: auto; color: #a6e3a1; font-size: 12px; }
         #downloadContainer { margin-top: 20px; text-align: center; display: none; }
         a.download-btn { background-color: #a6e3a1; color: #11111b; text-decoration: none; padding: 12px 20px; border-radius: 5px; font-weight: bold; display: inline-block; }
+        .status-badge { display: inline-block; padding: 5px 10px; border-radius: 5px; font-size: 12px; font-weight: bold; margin-bottom: 15px; background: #f38ba8; color: #11111b; }
+        .status-badge.ready { background: #a6e3a1; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2>🎬 Intro + Trim Tool (Offline Mode)</h2>
+        <h2>🎬 Intro + Trim Tool</h2>
+        <div id="offlineStatus" class="status-badge">Checking Offline Status...</div>
         
         <div class="form-group">
             <label for="introFile">1. Import Intro Video</label>
@@ -50,6 +53,22 @@
 
     <script>
         const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('offlineStatus');
+
+        // REGISTER SERVICE WORKER FOR OFFLINE CACHING
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js')
+            .then(() => {
+                statusEl.textContent = "✅ App Cached & Ready for Offline Use";
+                statusEl.classList.add('ready');
+            })
+            .catch((err) => {
+                console.error("Service Worker failed", err);
+                statusEl.textContent = "❌ Offline Caching Failed";
+            });
+        } else {
+            statusEl.textContent = "❌ Browser doesn't support offline caching";
+        }
 
         window.onerror = function(message) {
             logEl.innerHTML += `<span style="color:red">Page Error: ${message}</span><br>`;
@@ -59,13 +78,14 @@
         let fetchFile = null;
 
         if (typeof FFmpeg === 'undefined') {
-            logEl.innerHTML = '<span style="color:red">Critical Error: The local ffmpeg.min.js file is missing.</span>';
+            logEl.innerHTML = '<span style="color:red">Engine blocked. Connect to a non-restricted network ONCE to download and cache the engine.</span>';
         } else {
             const { createFFmpeg, fetchFile: importedFetchFile } = FFmpeg;
             fetchFile = importedFetchFile;
             
-            const coreUrl = new URL('ffmpeg-core.js', document.baseURI).href;
-            const wasmUrl = new URL('ffmpeg-core.wasm', document.baseURI).href;
+            // Pointing to the CDN files (which the Service Worker will instantly intercept and provide from cache!)
+            const coreUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js';
+            const wasmUrl = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.wasm';
             
             ffmpeg = createFFmpeg({ 
                 log: true,
@@ -81,7 +101,7 @@
 
         document.getElementById('processBtn').addEventListener('click', async () => {
             if (!ffmpeg) {
-                alert("Engine missing.");
+                alert("Engine not loaded. Please connect to an unrestricted network and refresh to cache the files.");
                 return;
             }
 
@@ -97,7 +117,7 @@
             const processBtn = document.getElementById('processBtn');
             processBtn.disabled = true;
             document.getElementById('downloadContainer').style.display = 'none';
-            logEl.innerHTML = "Initializing local engine...<br>";
+            logEl.innerHTML = "Initializing engine...<br>";
 
             try {
                 const videoURL = URL.createObjectURL(mainFile);
@@ -123,7 +143,6 @@
 
                 logEl.innerHTML += "Merging videos (Re-encoding for compatibility)...<br>";
                 
-                // FIX: Re-encoding the videos using filter_complex so they stitch seamlessly regardless of differing formats
                 await ffmpeg.run(
                     '-i', 'intro.mp4',
                     '-i', 'trimmed_main.mp4',

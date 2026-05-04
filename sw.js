@@ -1,6 +1,6 @@
 const CACHE_NAME = 'ffmpeg-offline-cache-v1';
 
-// These are the exact files we want to save to the browser's memory
+// These are the exact files we want to save to the browser's memory 
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
